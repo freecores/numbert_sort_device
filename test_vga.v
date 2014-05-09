@@ -53,6 +53,7 @@ Test_Sorting_Stack #( 15, R_SZ   ) high_end_2( .clk( iVGA_CLK ), .rst( ~iRST_n )
 								.dbg_val(_)
 							);
 
+
 								
 wire [7:0] mp_test_out;
 
@@ -140,7 +141,7 @@ reg [31:0]   old_sum;
   wire [HBIT:0] _data_in= tumblers[4] ? -1-data_in : data_in;	
   Sorting_Tree #(HBIT,R_SZ) ctree ( clk, ~cell_clk, is_input, _data_in, _d_out_3	);
   wire [HBIT:0] d_out_3 = tumblers[4] ? -1-_d_out_3  : _d_out_3;	
-  Sorting_Tree #(HBIT,R_SZ) cstack ( clk, ~cell_clk, is_input, _data_in, _data_out	);
+  Sorting_Stack #(HBIT,R_SZ) cstack ( clk, ~cell_clk, is_input, _data_in, _data_out	);
   wire [HBIT:0] data_out= tumblers[4] ? -1-_data_out : _data_out;	
 
 reg [11:0]count; 
