@@ -27,88 +27,90 @@
 //bit [1] com;
 //bit [15:0] dat;
 //} CDT_port;
-//
-//module Cell_Dyna_Tree ( clk, glob_com, stageGlb, is_input, in_prev, in_next, out );
-//
-//parameter HBIT= 15;
-//
-//
-//input clk;
-//input glob_com;
-//
-//input  stageGlb[3:0];
-//input  candidateActive[3:0];
-//
-//input  parentPtr[3:0];
-//input  [HBIT:0] pntInQuestMsg [3:0];
-//input  [HBIT:0] cldInQuestMsg [3:0];
-//output active =  |parentPtr;
-//output  [HBIT:0] message;
-//
-//output bit  leftPtr [3:0];
-//output bit  rightPtr[3:0];
-//
-//wire leftRq;	//	have left subtree
-//wire rightRq;	//	have right subtree
-//
-////wire parentMsg= pntInQuestMsg[];
-//
-//Cell_DT_Inner #( HBIT ) inner ( clk, glob_com, parentMsg, leftMsg, rightMsg, message );
-//
-//always@(posedge clk )
-//begin
-//	if ( leftRq )
-//	begin
-//		if ( leftPtr==0 )	//	new child required
-//		begin
-//			if ( stageGlb & ~candidateActive )
-//			begin
-//				leftPtr<= stageGlb;
-//			end
-//		end
-//	end
-//	else
-//	begin
-//		leftPtr<= 0;
-//	end
-//	if (~hold)
-//	begin
-//		higher <= ( cand_h > cand_l ) ? cand_h : cand_l;
-//		lower  <= ( cand_h > cand_l ) ? cand_l : cand_h;
-//	end
-//end
-//endmodule
-//
-//
-//module Cell_DT_Inner ( clk, glob_com, parentMsg, leftMsg, rightMsg, message );
-//parameter HBIT= 15;
-//
-//input clk;
-//input [1:0]glob_com;
-//
-//input  [HBIT:0] parentMsg;
-//input  [HBIT:0] leftMsg;
-//input  [HBIT:0] rightMsg;
-//output  [HBIT:0] message;
-//
-//reg [HBIT:0] store;
-//reg [HBIT:0] tmp;
-//
-//always@(posedge clk )
-//begin
-//	case( glob_com )
-//	2'h0: ;	
-//	2'h1: ;
-//	2'h2:	
-//		begin
-//			higher <= ( cand_h > cand_l ) ? cand_h : cand_l;
-//			lower  <= ( cand_h > cand_l ) ? cand_l : cand_h;
-//		end
-//	2'h3:	;
-//	endcase
-//end
-//
-//endmodule
-//
-//
-//
+
+module Dyna_Tree ( clk, glob_com, dataIn, dataOut );
+
+parameter HBIT= 7;
+parameter TREE_LEVEL= 4;
+
+input clk;
+input [1:0] glob_com;
+
+input  [HBIT:0] dataIn;
+output [HBIT:0] dataOut;
+
+wire [HBIT:0] toLeft;
+wire [HBIT:0] toRight;
+wire [HBIT:0] fromLeft;
+wire [HBIT:0] fromRight;
+
+Cell_DT_Inner #( HBIT ) inner ( clk, glob_com, dataIn, fromLeft, fromRight, dataOut, toLeft, toRight );
+
+generate
+if ( TREE_LEVEL >0 )
+begin
+	Dyna_Tree #( HBIT, TREE_LEVEL-1 ) leftSubTree  ( clk, glob_com, toLeft, fromLeft );
+	Dyna_Tree #( HBIT, TREE_LEVEL-1 ) rightSubTree ( clk, glob_com, toRight, fromRight );
+end
+else
+begin
+	assign fromLeft =1;
+	assign fromRight=1;
+end
+endgenerate
+
+
+endmodule
+
+
+typedef enum { 	VMS_NOMESSAGE=0, 
+						VMS_WRITE,
+						VMS_READ
+		} VMeta;
+
+module Cell_DT_Inner ( clk, glob_com, fromParent, fromLeft, fromRight, toParent, toLeft, toRight );
+parameter HBIT= 7;
+
+input clk;
+input [1:0] glob_com;
+
+input  [HBIT:0] fromParent;
+input  [HBIT:0] fromLeft;
+input  [HBIT:0] fromRight;
+
+output [HBIT:0] toParent;
+output [HBIT:0] toLeft;
+output [HBIT:0] toRight;
+
+reg [HBIT:0] value;
+reg [HBIT:0] message;
+VMeta        state;
+
+assign toParent= value + message;
+assign toLeft= message;
+assign toRight= value;
+
+always@(posedge clk )
+begin
+	case( state )
+	VMS_NOMESSAGE: ;	
+	VMS_WRITE:	
+		begin
+			value    <= fromParent +1;
+			message  <= fromParent;
+		end
+	VMS_READ:	
+		begin
+			value    <= fromLeft;
+			message  <= fromRight;
+		end
+	2'h3:	;
+	default:	;
+	endcase
+	state    <= VMeta'(glob_com);
+end
+
+endmodule
+
+
+
