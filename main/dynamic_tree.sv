@@ -43,25 +43,32 @@ endmodule
 
 
 typedef enum bit[3:0] { 	VK_EMPTY=4'h0, 
-						VK_EOF,
 						VK_DUMMY1,
 						VK_DUMMY2,
 						VK_DUMMY3,
+						
 						VK_DUMMY4,
-						VK_DUMMY5,
+						VK_TRANSIT,
 						VK_APPLY,
-						VK_K,
-						VK_DUMMY6,
-						VK_DUMMY7,
-						VK_DUMMY8,
-						VK_DUMMY9
+						VK_EOF,
+						
+						VK_K[2]= 4'h8,
+						
+						VK_S[3]= 4'd12,
+						VK_DUMMY5
 		} VKind;
 
+function logic [1:0] CH_NUM( logic [3:0] k );
+CH_NUM = k[1:0];
+endfunction		
+		
 typedef enum bit[3:0] { 	VMS_EMPTY=4'h0, 
-						VMS_EOF,
 						VMS_READY,
-						VMS_WRITE,
+						VMS_PROCESS,
+						VMS_BOMB,
+
 						VMS_READ,
+						VMS_APPLY,
 						VMS_STOP		//	end of tree
 		} VMeta;
 
@@ -113,118 +120,132 @@ begin
 		case( state )
 		VMS_EMPTY:					//	sleeping
 		begin
-			value <=  fromParent==VK_APPLY || fromParent==VK_K ? fromParent : VK_DUMMY9;		//	write self
-			case( fromParent )
-			VK_EMPTY:;					//	still sleeping
-			VK_APPLY:					//	write subtrees	
-				state <= VMS_WRITE;
-			default:						//	i'm a leaf
+			if ( !value )	
+			begin	//	writing left
+				value <=  fromParent;//==VK_APPLY || fromParent==VK_EMPTY || fromParent==VK_K0 ? fromParent : VK_DUMMY5;		//	write self
+				if ( fromParent && CH_NUM( fromParent )==0 )
+				begin
+					message.msg <= VMS_READY;
+					message.tgt <= TO_PARENT;
+					state       <= VMS_READY;
+				end
+			end
+			else if ( CH_NUM( value )!=0 && ~fromLeft[0] )
+			begin								//	write left
+				message.msg <= fromParent;
+				message.tgt <= TO_LEFT;
+			end
+			else if ( CH_NUM( value )==2 && ~fromRight[0] )
+			begin								//	begin writing right
+				message.msg <= fromParent;
+				message.tgt <= TO_RIGHT;
+			end
+			else
 			begin
 				message.msg <= VMS_READY;
 				message.tgt <= TO_PARENT;
 				state       <= VMS_READY;
 			end
-			endcase
-		end
-		
-		VMS_WRITE:	
-		begin
-			case( step )
-			0:									//	writing left
-				if ( fromLeft == VMS_EMPTY )
-				begin								//	write left
-					message.msg <= fromParent;
-					message.tgt <= TO_LEFT;
-				end
-				else
-				begin								//	begin writing right
-					message.msg <= fromParent;
-					message.tgt <= TO_RIGHT;
-					step        <= step+4'h1;
-				end
-			1:									//	writing right
-				if ( fromRight == VMS_EMPTY )
-				begin								//	write right
-					message.msg <= fromParent;
-					message.tgt <= TO_RIGHT;
-				end
-				else
-				begin								//	job well done, notify parent
-					message.msg <= VMS_READY;
-					message.tgt <= TO_PARENT;
-					state       <= VMS_READY;
-					step        <= 0;
-				end
-			endcase
 		end
 		
 		VMS_READ:	
 		begin
-			case( step )
-			0:									
-			if ( value != VK_APPLY )
+			if ( message.msg == VK_EOF )
 			begin
-				message.msg <= VK_EOF;		//	leaf's report
-				message.tgt <= TO_PARENT;
+				message.msg <= VMS_READY;		//	end read 2
 				state       <= VMS_READY;
 			end
-			else if ( fromLeft==VMS_READY )
+//			else if ( message.msg == VMS_READY && value != VK_TRANSIT )
+//			begin
+//				message.msg <= value;		//	read self
+//				message.tgt <= TO_PARENT;
+//			end
+			else if ( CH_NUM( value )==0 )
 			begin
-				message.msg <= VMS_READ;	//	begin read left
+				message.msg <= VK_EOF;		//	end read 1.1
+			end
+			else if ( ~step[0] && fromLeft == VMS_READY )
+			begin
+				message.msg <= VMS_READ;		//	command left
 				message.tgt <= TO_LEFT;
-				step        <= 4'h1;
 			end
-			else 
-				message.msg <= VK_EMPTY;	//	wait for left
-			1:
-				case( fromLeft )
-				VK_EMPTY:;
-				VK_EOF:
-				begin
-					step        <= 4'h2;
-					message.msg <= VK_EMPTY;
-				end
-				default:							//	transfer left
-				begin
-					message.msg <= fromLeft;	
-					message.tgt <= TO_PARENT;
-				end
-				endcase
-			2:									//	begin read right
-			if ( fromRight==VMS_READY )
+			else if ( ~step[0] && fromLeft != VK_EOF )
 			begin
-				message.msg <= VMS_READ;	
+				message.msg <= fromLeft;		//	transfer left
+				message.tgt <= TO_PARENT;
+			end
+			else if ( CH_NUM( value )==1 )
+			begin
+				message.msg <= VK_EOF;		//	end read 1.2
+			end
+			else if ( fromRight == VMS_READY )
+			begin
+				message.msg <= VMS_READ;		//	command right
 				message.tgt <= TO_RIGHT;
-				step        <= 4'h3;
+				step[0] <= 1;
+			end
+			else if ( fromRight != VK_EOF )
+			begin
+				message.msg <= fromRight;		//	transfer right
+				message.tgt <= TO_PARENT;
 			end
 			else 
-				message.msg <= VK_EMPTY;	//	wait for right
-			3:
-				case( fromRight )
-				VK_EMPTY:;
-				VK_EOF:
-				begin
-					message.msg <= fromRight;	
-					state       <= VMS_READY;
-					step        <= 0;
-				end
-				default:							//	transfer right
-				begin
-					message.msg <= fromRight;	
-					message.tgt <= TO_PARENT;
-				end
-				endcase
-			endcase
+			begin
+				message.msg <= VK_EOF;		//	end read 1.3
+				step[0] <= 0;
+			end
+		
+
 		end
 		
 		VMS_READY:	
 		begin
 			case( fromParent )
+			VMS_BOMB:						//	clear
+			begin
+				message.msg <= VMS_BOMB;	
+				message.tgt <= TO_CHILDREN;
+				state    	<= VMS_EMPTY;
+				value    	<= VK_EMPTY;
+			end
 			VMS_READ:						//	read self
 			begin
-				message.msg <= value;	
-				message.tgt <= TO_PARENT;
+				if ( value != VK_TRANSIT )
+				begin
+					message.msg <= value;	
+					message.tgt <= TO_PARENT;
+				end
 				state       <= VMS_READ;
+			end
+			VMS_APPLY:						//	apply string from parent to itself
+			begin
+				if ( CH_NUM( value )!=0 )
+				begin
+					message.msg <= VMS_APPLY;	
+					message.tgt <= TO_CHILDREN;
+				end
+				begin
+					case( value )
+					VK_K0,
+					VK_S0,
+					VK_S1:
+					begin								      //	add argument
+						value[1:0] <= value[1:0] +1;	//	K0 -> K1, S0 -> S1, S1 -> S2
+						state      <= VMS_EMPTY;		//	WRITE
+					end
+					VK_K1:							//	K main
+					begin
+						value       <= VK_TRANSIT;
+						state       <= VMS_READY;
+						message.msg <= VMS_BOMB;	
+						message.tgt <= TO_RIGHT;
+					end
+					VK_S2:							//	S main
+					begin
+						state       <= VMS_APPLY;
+					end
+					endcase
+				end
 			end
 			default:
 			begin
@@ -233,11 +254,25 @@ begin
 			end
 			endcase
 		end
+		
+		VMS_APPLY:	
+		if ( fromParent != VK_EOF )
+		begin
+			message.msg <= fromParent;	//	Sxyz -> `(_`_xz) (_`_yz)		
+			message.tgt <= TO_CHILDREN;
+		end
+		else
+		begin
+			message.msg <= VK_EMPTY;	
+			state       <= VMS_READY;
+			value			<= VK_APPLY;	//	Sxyz -> _`_ (`xz) (`yz)	
+		end
 		endcase
 	end
 	default:								//	reset mode	
 	begin
 		state    <= VMS_EMPTY;
+		value    <= VK_EMPTY;
 		message.msg  <= VMS_EMPTY;
 		step 		<= 0;
 	end
